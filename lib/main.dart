@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart' show DateFormat;
 
 import 'package:flutter/material.dart';
@@ -43,9 +44,11 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> with SingleTickerProviderStateMixin {
+  static const platform = const MethodChannel('shush_ch');
   FlutterSound _flutterSound = new FlutterSound();
   int _currentIndex = 0;
   Directory tempPath;
+  Directory testPath;
   AnimationController _animationController;
   Animation<Color> _animateColor;
   Animation<Color> _animateColorExpanded;
@@ -54,6 +57,7 @@ class _MyAppState extends State<MyApp> with SingleTickerProviderStateMixin {
   bool isRecording = false;
   void getTempPath() async {
     tempPath = await getTemporaryDirectory();
+    testPath = await getExternalStorageDirectory();
     await new Directory('${tempPath.path}/shush').create(recursive: true);
   }
 
@@ -87,31 +91,29 @@ class _MyAppState extends State<MyApp> with SingleTickerProviderStateMixin {
         _recorderSubscription = null;
       }
 
-      File encryptFile = new File('${tempPath.path}/shush/sound.mp4');
-      Stream<List<int>> inputStream = encryptFile.openRead();
-      var lines = inputStream.transform(utf8.decoder)
-      .transform(LineSplitter());
-      try {
-        await for (var line in lines) {
-          print('Got ${line.length} characters from stream');
-        }
-      } catch (e) {
-        print(e);
-      }
-      String testttt = encryptFile.readAsStringSync(encoding: latin1);
-      final key = 'private!!!!!!!!!';
+      final String res = await platform.invokeMethod('encryptAudio', <String, dynamic>{
+        'path': '${tempPath.path}/shush/sound.mp4',
+        'data': ''
+      });
+      print(res);
+      final key = 'private!!!!!!!!!private!!!!!!!!!';
       final iv = '8bytesiv';
       final encrypter = new Encrypter(new Salsa20(key, iv));
-
-      final encrypted = encrypter.encrypt(testttt);
+      final encrypted = encrypter.encrypt(res);
       final decrypted = encrypter.decrypt(encrypted);
 
-      List<int> fromString = latin1.encode(decrypted);
-      File newFileFile  = new File('${tempPath.path}/shush/soundsoundsound.mp4');
-      var sink = newFileFile.openWrite();
-      sink.write(decrypted);
-      await sink.flush();
-      await sink.close();
+      print(decrypted);
+
+      final bool ress = await platform.invokeMethod('createFile', <String, dynamic>{
+        'path': '${testPath.path}/shush/sound2.mp4',
+        'data': decrypted
+      });
+      //print(audioString);
+      // print(encrypted);
+      //print(decrypted);
+      // List<int> decryptBytes = base64Decode(audioString);
+      // File testSound = new File('${testPath.path}/soundsoundsound.mp4');
+      // testSound.writeAsBytesSync(audioBytes);
     }
     
     setState(() {
@@ -172,7 +174,7 @@ class _MyAppState extends State<MyApp> with SingleTickerProviderStateMixin {
       ListTile(
         title: Text('Recents 3'),
         subtitle: Text('Recorded 01-03-2019'),
-        onTap: _tappedRecent,
+        onTap: _tappedRecentThree,
       ),
       Expanded(
         child: Container(
@@ -186,12 +188,17 @@ class _MyAppState extends State<MyApp> with SingleTickerProviderStateMixin {
   }
 
   void _tappedRecent() async {
-    await _flutterSound.startPlayer('${tempPath.path}/shush/soundsoundsound.mp4');
+    await _flutterSound.startPlayer('${tempPath.path}/shush/sound.mp4');
     await _flutterSound.setVolume(1.0);
   }
 
   void _tappedRecentTwo() async {
     await _flutterSound.stopPlayer();
+  }
+
+  void _tappedRecentThree() async {
+    await _flutterSound.startPlayer('${tempPath.path}/shush/soundsoundsound.mp4');
+    await _flutterSound.setVolume(1.0);
   }
 
   @override

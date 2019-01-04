@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart' show DateFormat;
 
@@ -10,10 +9,11 @@ import 'package:flutter_sound/flutter_sound.dart';
 import 'package:dynamic_theme/dynamic_theme.dart';
 import 'package:flutter_spinkit/flutter_spinkit.dart';
 import 'package:encrypt/encrypt.dart';
-import 'package:flutter_string_encryption/flutter_string_encryption.dart';
 import 'package:path/path.dart' as p;
 import 'package:watcher/watcher.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
+import 'package:shush/audio_encrypter.dart';
+import 'package:shush/recents_widget.dart';
 
 void main() => runApp(AppContainer());
 
@@ -50,8 +50,6 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> with SingleTickerProviderStateMixin {
   static const platform = const MethodChannel('shush_ch');
   FlutterSound _flutterSound = new FlutterSound();
-  final secureString = new PlatformStringCryptor();
-  Encrypter _encrypter;
   int _currentIndex = 0;
   Directory tempPath;
   Directory externalPath;
@@ -62,33 +60,15 @@ class _MyAppState extends State<MyApp> with SingleTickerProviderStateMixin {
   String _recorderTxt = '00:00:00';
   bool isRecording = false;
 
-  void createShushExternalDirectory(path) {
-    new Directory(path).createSync(recursive: true);
-  }
-
-  void initEncrypter() async {
-    final storage = new FlutterSecureStorage();
-    final String ivFromStorage = await storage.read(key: 'ivkey');
-    final String keyFromStorage = await storage.read(key: 'salsakey');
-
-    final String iv = ivFromStorage != null ? ivFromStorage : await platform.invokeMethod('generateIv');
-    final String key = keyFromStorage != null ? keyFromStorage : await secureString.generateRandomKey();
-    _encrypter = new Encrypter(new Salsa20(key, iv));
-    print(iv);
-    print(key);
-    if (ivFromStorage == null) {
-      await storage.write(key: 'ivkey', value: iv);
-    }
-
-    if (keyFromStorage == null) {
-      await storage.write(key: 'salsakey', value: key);
-    }
+  void initEncrypter() {
+    AudioEncrypter.getEncrypter();
   }
 
   void getPaths() {
     getTemporaryDirectory().then((val) {
       setState(() {
         tempPath = val;
+        new Directory('${val.path}/shush').create(recursive: true);
       });
     });
 
@@ -106,12 +86,9 @@ class _MyAppState extends State<MyApp> with SingleTickerProviderStateMixin {
   }
 
   void _startRecord() async {
-    Directory temporaryDirectory = await getTemporaryDirectory();
-    String temporaryPath = temporaryDirectory.path;
-    createShushExternalDirectory('$temporaryPath/shush');
     if (!isRecording) {
       _animationController.forward();
-      await _flutterSound.startRecorder('$temporaryPath/sound.mp4');
+      await _flutterSound.startRecorder('${tempPath.path}/sound.mp4');
       _recorderSubscription = _flutterSound.onRecorderStateChanged.listen((e) {
         DateTime date = new DateTime.fromMillisecondsSinceEpoch(e.currentPosition.toInt());
         String txt = DateFormat('mm:ss:SS', 'en_US').format(date);
@@ -121,9 +98,6 @@ class _MyAppState extends State<MyApp> with SingleTickerProviderStateMixin {
         });
       });
     } else {
-      Directory externalDirectory = await getExternalStorageDirectory();
-      String externalPath = externalDirectory.path;
-
       _animationController.reverse();
       _flutterSound.stopRecorder();
 
@@ -132,20 +106,7 @@ class _MyAppState extends State<MyApp> with SingleTickerProviderStateMixin {
         _recorderSubscription = null;
       }
 
-      final String res = await platform.invokeMethod('fileToByteArray', <String, dynamic>{
-        'path': '$temporaryPath/sound.mp4'
-      });
-      print(res);
-      final encrypted = _encrypter.encrypt(res);
-
-      DateTime appendDate = new DateTime.now();
-      final pathFileName = '$externalPath/shush/${appendDate.toString()}_recording.shush';
-      File testWriteEncryptedValue = new File(pathFileName);
-      testWriteEncryptedValue.writeAsString(encrypted);
-//      await platform.invokeMethod('createFile', <String, dynamic>{
-//        'path': pathFileName,
-//        'data': encrypted
-//      });
+      AudioEncrypter.encryptAudioAndWrite(tempPath.path, externalPath.path);
     }
     
     setState(() {
@@ -157,16 +118,18 @@ class _MyAppState extends State<MyApp> with SingleTickerProviderStateMixin {
     if (isRecording) {
       return Column(
         children: <Widget>[
-          Padding(
-            padding: EdgeInsets.only(top: 35.0),
-            child: Text(
-              _recorderTxt,
-              style: TextStyle(fontSize: 24.0, fontWeight: FontWeight.bold),
-            ),
+          Expanded(
+            child: Center(
+              child: Text(
+                _recorderTxt,
+                style: TextStyle(fontSize: 64.0, fontWeight: FontWeight.bold),
+              ),
+            )
           ),
           Expanded(
+            flex: 3,
             child: SpinKitWave(
-              size: 90.0,
+              size: 150.0,
               itemBuilder: (context, int index) {
                 return DecoratedBox(
                   decoration: BoxDecoration(
@@ -179,7 +142,7 @@ class _MyAppState extends State<MyApp> with SingleTickerProviderStateMixin {
         ],
       );
     } else {
-      return Icon(Icons.hotel, size: 60.0);
+      return Icon(Icons.hotel, size: 80.0);
     }
   }
 
@@ -191,66 +154,17 @@ class _MyAppState extends State<MyApp> with SingleTickerProviderStateMixin {
     }
   }
 
-  List<Widget> getRecents() {
-    List<Widget> recents = [];
-    if (externalPath != null) {
-      Directory externalShush = Directory('${externalPath.path}/shush');
-      var watcher = DirectoryWatcher(externalShush.path);
-      watcher.events.listen((event) {
-        print(event);
-      });
-      var filesInFolder = externalShush.listSync();
-      for (var shouldBeFile in filesInFolder) {
-        if (shouldBeFile is File) {
-          String fileName = p.basename(shouldBeFile.path);
-          String lastModified = shouldBeFile.lastModifiedSync().toLocal().toString();
-          recents.add(ListTile(
-            title: Text(fileName),
-            subtitle: Text(lastModified),
-            onTap: () {
-              _tappedAudioItem(fileName);
-            },
-          ));
-        }
-      }
-    }
-
-    return recents;
-  }
-
-  List<Widget> getRecorderBody(BuildContext context) {
-    List<Widget> homeBody = [];
-    List<Widget> recentWidgets = getRecents();
-    homeBody.addAll(recentWidgets);
-    homeBody.add(Expanded(
-      child: Container(
+  Widget getRecorderBody() {
+    if (_currentIndex == 1) {
+      return Recents();
+    } else {
+      return Container(
         color: _animateColorExpanded.value,
         child: Center(
             child: getRecordingDisplay(context)
         ),
-      ),
-    ));
-    return homeBody;
-  }
-
-  void _tappedAudioItem(String filename) async {
-    File testFile = new File('${externalPath.path}/shush/$filename');
-    String encryptedValue = testFile.readAsStringSync();
-    String decryptedValue = _encrypter.decrypt(encryptedValue);
-    print(decryptedValue);
-//    final String res = await platform.invokeMethod('fileToByteArray', <String, dynamic>{
-//      'path': '${externalPath.path}/shush/$filename'
-//    });
-//    String decrypted = _encrypter.decrypt(res);
-    final String shushTempFile = '${tempPath.path}/tempshush.mp4';
-    await platform.invokeMethod('createFile', <String, dynamic>{
-      'path': shushTempFile,
-      'data': decryptedValue
-    });
-
-    _flutterSound.stopPlayer();
-    await _flutterSound.startPlayer(shushTempFile);
-    await _flutterSound.setVolume(1.0);
+      );
+    }
   }
 
   @override
@@ -296,9 +210,7 @@ class _MyAppState extends State<MyApp> with SingleTickerProviderStateMixin {
       appBar: AppBar(
         title: Text('Shush'),
       ),
-      body: Column(
-        children: getRecorderBody(context),
-      ),
+      body: getRecorderBody(),
       bottomNavigationBar: BottomNavigationBar(
         items: <BottomNavigationBarItem>[
           BottomNavigationBarItem(icon: Icon(Icons.home), title: Text('Home')),
@@ -315,7 +227,7 @@ class _MyAppState extends State<MyApp> with SingleTickerProviderStateMixin {
         },
         child: Icon(getPlayStopIcon())
       ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
     );
   }
 }

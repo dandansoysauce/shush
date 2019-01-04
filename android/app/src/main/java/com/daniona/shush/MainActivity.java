@@ -11,6 +11,9 @@ import io.flutter.plugin.common.MethodChannel.MethodCallHandler;
 import io.flutter.plugin.common.MethodChannel.Result;
 
 import java.io.*;
+import java.security.SecureRandom;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.IvParameterSpec;
 
 public class MainActivity extends FlutterActivity {
   private static final String CHANNEL = "shush_ch";
@@ -25,20 +28,34 @@ public class MainActivity extends FlutterActivity {
         @Override
         public void onMethodCall(MethodCall call, Result result) {
           String path = call.argument("path");
-          String data = call.argument("data");
-          if (call.method.equals("encryptAudio")) {
-            String bytes = encryptAudio(path, data);
+          if (call.method.equals("fileToByteArray")) {
+            String bytes = fileToByteArray(path);
             result.success(bytes);
           } else if (call.method.equals("createFile")) {
+            String data = call.argument("data");
             createFile(path, data);
             result.success(true);
+          } else if (call.method.equals("generateIv")) {
+            String aesKey = generateIv();
+            result.success(aesKey);
           }
         }
       }
     );
   }
 
-  private String encryptAudio(String path, String datashit) {
+  private String generateIv() {
+    SecureRandom secureRandom = new SecureRandom();
+    String AB = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+    StringBuilder sb = new StringBuilder(8);
+    for (int i = 0; i < 8; i++) {
+      sb.append( AB.charAt(secureRandom.nextInt(AB.length())));
+    }
+
+    return sb.toString();
+  }
+
+  private String fileToByteArray(String path) {
     File soundFile = new File(path);
     long byteLength = soundFile.length();
     byte[] filecontent = new byte[(int) byteLength];
@@ -53,21 +70,20 @@ public class MainActivity extends FlutterActivity {
   }
 
   private void createFile(String path, String data) {
-      File soundFile;
-      FileOutputStream fop = null;
+    File soundFile;
+    FileOutputStream fop = null;
     try {
-
-        soundFile = new File(path);
-        fop = new FileOutputStream(soundFile);
+      soundFile = new File(path);
+      fop = new FileOutputStream(soundFile);
 
       if (!soundFile.exists()) {
-          soundFile.createNewFile();
+        soundFile.createNewFile();
       }
 
-        byte[] bytes = Base64.decode(data, Base64.DEFAULT);
-        fop.write(bytes);
-        fop.flush();
-        fop.close();
+      byte[] bytes = Base64.decode(data, Base64.DEFAULT);
+      fop.write(bytes);
+      fop.flush();
+      fop.close();
     } catch (Exception e) {
       e.printStackTrace();
     }

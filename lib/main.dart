@@ -10,6 +10,10 @@ import 'package:flutter_sound/flutter_sound.dart';
 import 'package:dynamic_theme/dynamic_theme.dart';
 import 'package:flutter_spinkit/flutter_spinkit.dart';
 import 'package:encrypt/encrypt.dart';
+import 'package:flutter_string_encryption/flutter_string_encryption.dart';
+import 'package:path/path.dart' as p;
+import 'package:watcher/watcher.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 void main() => runApp(AppContainer());
 
@@ -46,19 +50,53 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> with SingleTickerProviderStateMixin {
   static const platform = const MethodChannel('shush_ch');
   FlutterSound _flutterSound = new FlutterSound();
+  final secureString = new PlatformStringCryptor();
+  Encrypter _encrypter;
   int _currentIndex = 0;
   Directory tempPath;
-  Directory testPath;
+  Directory externalPath;
   AnimationController _animationController;
   Animation<Color> _animateColor;
   Animation<Color> _animateColorExpanded;
   StreamSubscription _recorderSubscription;
   String _recorderTxt = '00:00:00';
   bool isRecording = false;
-  void getTempPath() async {
-    tempPath = await getTemporaryDirectory();
-    testPath = await getExternalStorageDirectory();
-    await new Directory('${tempPath.path}/shush').create(recursive: true);
+
+  void createShushExternalDirectory(path) {
+    new Directory(path).createSync(recursive: true);
+  }
+
+  void initEncrypter() async {
+    final storage = new FlutterSecureStorage();
+    final String ivFromStorage = await storage.read(key: 'ivkey');
+    final String keyFromStorage = await storage.read(key: 'salsakey');
+
+    final String iv = ivFromStorage != null ? ivFromStorage : await platform.invokeMethod('generateIv');
+    final String key = keyFromStorage != null ? keyFromStorage : await secureString.generateRandomKey();
+    _encrypter = new Encrypter(new Salsa20(key, iv));
+    print(iv);
+    print(key);
+    if (ivFromStorage == null) {
+      await storage.write(key: 'ivkey', value: iv);
+    }
+
+    if (keyFromStorage == null) {
+      await storage.write(key: 'salsakey', value: key);
+    }
+  }
+
+  void getPaths() {
+    getTemporaryDirectory().then((val) {
+      setState(() {
+        tempPath = val;
+      });
+    });
+
+    getExternalStorageDirectory().then((val) {
+      setState(() {
+        externalPath = val;
+      });
+    });
   }
 
   void _onBottomNavigationBarTap(int index) {
@@ -68,13 +106,12 @@ class _MyAppState extends State<MyApp> with SingleTickerProviderStateMixin {
   }
 
   void _startRecord() async {
+    Directory temporaryDirectory = await getTemporaryDirectory();
+    String temporaryPath = temporaryDirectory.path;
+    createShushExternalDirectory('$temporaryPath/shush');
     if (!isRecording) {
       _animationController.forward();
-      File testFileExists = new File('${tempPath.path}/shush/sound.mp4');
-      if (testFileExists.existsSync()) {
-        new Directory('${tempPath.path}/shush/sound.mp4').deleteSync(recursive: true);
-      }
-      await _flutterSound.startRecorder('${tempPath.path}/shush/sound.mp4');
+      await _flutterSound.startRecorder('$temporaryPath/sound.mp4');
       _recorderSubscription = _flutterSound.onRecorderStateChanged.listen((e) {
         DateTime date = new DateTime.fromMillisecondsSinceEpoch(e.currentPosition.toInt());
         String txt = DateFormat('mm:ss:SS', 'en_US').format(date);
@@ -84,36 +121,31 @@ class _MyAppState extends State<MyApp> with SingleTickerProviderStateMixin {
         });
       });
     } else {
+      Directory externalDirectory = await getExternalStorageDirectory();
+      String externalPath = externalDirectory.path;
+
       _animationController.reverse();
       _flutterSound.stopRecorder();
+
       if (_recorderSubscription != null) {
         _recorderSubscription.cancel();
         _recorderSubscription = null;
       }
 
-      final String res = await platform.invokeMethod('encryptAudio', <String, dynamic>{
-        'path': '${tempPath.path}/shush/sound.mp4',
-        'data': ''
+      final String res = await platform.invokeMethod('fileToByteArray', <String, dynamic>{
+        'path': '$temporaryPath/sound.mp4'
       });
       print(res);
-      final key = 'private!!!!!!!!!private!!!!!!!!!';
-      final iv = '8bytesiv';
-      final encrypter = new Encrypter(new Salsa20(key, iv));
-      final encrypted = encrypter.encrypt(res);
-      final decrypted = encrypter.decrypt(encrypted);
+      final encrypted = _encrypter.encrypt(res);
 
-      print(decrypted);
-
-      final bool ress = await platform.invokeMethod('createFile', <String, dynamic>{
-        'path': '${testPath.path}/shush/sound2.mp4',
-        'data': decrypted
-      });
-      //print(audioString);
-      // print(encrypted);
-      //print(decrypted);
-      // List<int> decryptBytes = base64Decode(audioString);
-      // File testSound = new File('${testPath.path}/soundsoundsound.mp4');
-      // testSound.writeAsBytesSync(audioBytes);
+      DateTime appendDate = new DateTime.now();
+      final pathFileName = '$externalPath/shush/${appendDate.toString()}_recording.shush';
+      File testWriteEncryptedValue = new File(pathFileName);
+      testWriteEncryptedValue.writeAsString(encrypted);
+//      await platform.invokeMethod('createFile', <String, dynamic>{
+//        'path': pathFileName,
+//        'data': encrypted
+//      });
     }
     
     setState(() {
@@ -159,45 +191,65 @@ class _MyAppState extends State<MyApp> with SingleTickerProviderStateMixin {
     }
   }
 
+  List<Widget> getRecents() {
+    List<Widget> recents = [];
+    if (externalPath != null) {
+      Directory externalShush = Directory('${externalPath.path}/shush');
+      var watcher = DirectoryWatcher(externalShush.path);
+      watcher.events.listen((event) {
+        print(event);
+      });
+      var filesInFolder = externalShush.listSync();
+      for (var shouldBeFile in filesInFolder) {
+        if (shouldBeFile is File) {
+          String fileName = p.basename(shouldBeFile.path);
+          String lastModified = shouldBeFile.lastModifiedSync().toLocal().toString();
+          recents.add(ListTile(
+            title: Text(fileName),
+            subtitle: Text(lastModified),
+            onTap: () {
+              _tappedAudioItem(fileName);
+            },
+          ));
+        }
+      }
+    }
+
+    return recents;
+  }
+
   List<Widget> getRecorderBody(BuildContext context) {
-    return <Widget>[
-      ListTile(
-        title: Text('Recents 1'),
-        subtitle: Text('Recorded 01-03-2019'),
-        onTap: _tappedRecent,
-      ),
-      ListTile(
-        title: Text('Recents 2'),
-        subtitle: Text('Recorded 01-03-2019'),
-        onTap: _tappedRecentTwo,
-      ),
-      ListTile(
-        title: Text('Recents 3'),
-        subtitle: Text('Recorded 01-03-2019'),
-        onTap: _tappedRecentThree,
-      ),
-      Expanded(
-        child: Container(
-          color: _animateColorExpanded.value,
-          child: Center(
+    List<Widget> homeBody = [];
+    List<Widget> recentWidgets = getRecents();
+    homeBody.addAll(recentWidgets);
+    homeBody.add(Expanded(
+      child: Container(
+        color: _animateColorExpanded.value,
+        child: Center(
             child: getRecordingDisplay(context)
-          ),
         ),
-      )
-    ];
+      ),
+    ));
+    return homeBody;
   }
 
-  void _tappedRecent() async {
-    await _flutterSound.startPlayer('${tempPath.path}/shush/sound.mp4');
-    await _flutterSound.setVolume(1.0);
-  }
+  void _tappedAudioItem(String filename) async {
+    File testFile = new File('${externalPath.path}/shush/$filename');
+    String encryptedValue = testFile.readAsStringSync();
+    String decryptedValue = _encrypter.decrypt(encryptedValue);
+    print(decryptedValue);
+//    final String res = await platform.invokeMethod('fileToByteArray', <String, dynamic>{
+//      'path': '${externalPath.path}/shush/$filename'
+//    });
+//    String decrypted = _encrypter.decrypt(res);
+    final String shushTempFile = '${tempPath.path}/tempshush.mp4';
+    await platform.invokeMethod('createFile', <String, dynamic>{
+      'path': shushTempFile,
+      'data': decryptedValue
+    });
 
-  void _tappedRecentTwo() async {
-    await _flutterSound.stopPlayer();
-  }
-
-  void _tappedRecentThree() async {
-    await _flutterSound.startPlayer('${tempPath.path}/shush/soundsoundsound.mp4');
+    _flutterSound.stopPlayer();
+    await _flutterSound.startPlayer(shushTempFile);
     await _flutterSound.setVolume(1.0);
   }
 
@@ -209,7 +261,6 @@ class _MyAppState extends State<MyApp> with SingleTickerProviderStateMixin {
   
   @override
   void initState() {
-    getTempPath();
     _animationController =
       AnimationController(vsync: this, duration: Duration(milliseconds: 500))
         ..addListener(() {
@@ -234,6 +285,9 @@ class _MyAppState extends State<MyApp> with SingleTickerProviderStateMixin {
     _animateColor = ColorTween(begin: Colors.red, end: Colors.white,).animate(_curvedAnimaton);
     _animateColorExpanded = ColorTween(begin: Colors.white, end: Colors.red).animate(_curvedAnimatonExpanded);
     super.initState();
+
+    getPaths();
+    initEncrypter();
   }
 
   @override

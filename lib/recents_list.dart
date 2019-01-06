@@ -8,8 +8,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:shush/audio_encrypter.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
-
-enum ConfirmAction { CANCEL, ACCEPT }
+import 'package:shush/dialogs.dart';
 
 class RecentsList extends StatefulWidget {
   final List<File> files;
@@ -22,6 +21,7 @@ class RecentsList extends StatefulWidget {
 
 class _RecentsListState extends State<RecentsList> with SingleTickerProviderStateMixin {
   final FlutterSound _flutterSound = new FlutterSound();
+  final ShushDialogs _shushDialogs = ShushDialogs();
   final List<File> files;
   final formatter = DateFormat('MMMM d y');
   StreamSubscription _playerSubscription;
@@ -105,44 +105,8 @@ class _RecentsListState extends State<RecentsList> with SingleTickerProviderStat
     }
   }
 
-  Future<String> getNewFileName(BuildContext context) async {
-    String newName = '';
-    return showDialog<String>(
-      context: context,
-      barrierDismissible: true,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: Text('File Name'),
-          content: Row(
-            children: <Widget>[
-              new Expanded(
-                child: TextField(
-                  autofocus: true,
-                  decoration: InputDecoration(
-                    labelText: 'File Name', hintText: 'shush',
-                  ),
-                  onChanged: (onValue) {
-                    newName = onValue;
-                  },
-                ),
-              )
-            ],
-          ),
-          actions: <Widget>[
-            FlatButton(
-              child: Text('OK'),
-              onPressed: () {
-                Navigator.of(context).pop(newName);
-              },
-            )
-          ],
-        );
-      }
-    );
-  }
-
   void _renameFile(BuildContext context, int index) async {
-    String newFileName = await getNewFileName(context);
+    String newFileName = await _shushDialogs.getNewFileName(context);
     String shushFolder = p.dirname(files[index].path);
     final file = files[index];
     file.rename('$shushFolder/$newFileName').then((f) {
@@ -151,38 +115,10 @@ class _RecentsListState extends State<RecentsList> with SingleTickerProviderStat
       });
     });   
   }
- 
-  Future<ConfirmAction> _asyncConfirmDialog(BuildContext context, String fileName) async {
-    return showDialog<ConfirmAction>(
-      context: context,
-      barrierDismissible: false, // user must tap button for close dialog!
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: Text('Delete recording?'),
-          content: Text(
-              'This will delete $fileName, confirm?'),
-          actions: <Widget>[
-            FlatButton(
-              child: const Text('NO'),
-              onPressed: () {
-                Navigator.of(context).pop(ConfirmAction.CANCEL);
-              },
-            ),
-            FlatButton(
-              child: const Text('YES'),
-              onPressed: () {
-                Navigator.of(context).pop(ConfirmAction.ACCEPT);
-              },
-            )
-          ],
-        );
-      },
-    );
-  }
 
   void _deleteFile(BuildContext context, int index) async {
     final fileName = p.basename(files[index].path);
-    final deleteFile = await _asyncConfirmDialog(context, fileName);
+    final deleteFile = await _shushDialogs.asyncConfirmDialog(context, fileName);
     if (deleteFile == ConfirmAction.ACCEPT) {
       final file = files[index];
       file.delete().then((onvalue) {

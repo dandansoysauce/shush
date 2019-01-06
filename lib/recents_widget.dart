@@ -17,21 +17,25 @@ class _RecentsState extends State<Recents> {
     return directory.path;
   }
 
-  Future<List<FileSystemEntity>> get _fetchFiles async {
+  Future<List<File>> get _fetchFiles async {
     final path = await _externalPath;
     Directory externalShush = Directory('$path/shush');
-    return externalShush.listSync();
+    return externalShush.listSync().whereType<File>().toList(growable: true);
   }
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<List<FileSystemEntity>>(
+    return FutureBuilder<List<File>>(
       future: _fetchFiles,
       builder: (context, snapshot) {
         if (snapshot.hasError) print(snapshot.error);
-        return snapshot.hasData
-          ? RecentsList(files: snapshot.data)
-          : Center(child: CircularProgressIndicator());
+        if (snapshot.hasData) {
+          var filesData = snapshot.data;
+          filesData.sort((a, b) => b.lastModifiedSync().compareTo(a.lastModifiedSync()));
+          return RecentsList(files: filesData);
+        } else {
+          return Center(child: CircularProgressIndicator());
+        }
       },
     );
   }

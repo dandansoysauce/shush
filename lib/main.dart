@@ -7,10 +7,6 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter_sound/flutter_sound.dart';
 import 'package:dynamic_theme/dynamic_theme.dart';
-import 'package:flutter_spinkit/flutter_spinkit.dart';
-import 'package:encrypt/encrypt.dart';
-import 'package:path/path.dart' as p;
-import 'package:watcher/watcher.dart';
 
 import 'package:shush/audio_encrypter.dart';
 import 'package:shush/recents_widget.dart';
@@ -54,8 +50,8 @@ class _MyAppState extends State<MyApp> with SingleTickerProviderStateMixin {
   Directory tempPath;
   Directory externalPath;
   AnimationController _animationController;
-  Animation<Color> _animateColor;
   Animation<Color> _animateColorExpanded;
+  Animation<Color> _buttonColor;
   StreamSubscription _recorderSubscription;
   String _recorderTxt = '00:00:00';
   bool isRecording = false;
@@ -87,7 +83,7 @@ class _MyAppState extends State<MyApp> with SingleTickerProviderStateMixin {
 
   void _startRecord() async {
     if (!isRecording) {
-      _animationController.forward();
+      await _animationController.forward();
       await _flutterSound.startRecorder('${tempPath.path}/sound.mp4');
       _recorderSubscription = _flutterSound.onRecorderStateChanged.listen((e) {
         DateTime date = new DateTime.fromMillisecondsSinceEpoch(e.currentPosition.toInt());
@@ -98,7 +94,7 @@ class _MyAppState extends State<MyApp> with SingleTickerProviderStateMixin {
         });
       });
     } else {
-      _animationController.reverse();
+      await _animationController.reverse();
       _flutterSound.stopRecorder();
 
       if (_recorderSubscription != null) {
@@ -114,43 +110,14 @@ class _MyAppState extends State<MyApp> with SingleTickerProviderStateMixin {
     });
   }
 
-  Widget getRecordingDisplay(context) {
-    if (isRecording) {
-      return Column(
-        children: <Widget>[
-          Expanded(
-            child: Center(
-              child: Text(
-                _recorderTxt,
-                style: TextStyle(fontSize: 64.0, fontWeight: FontWeight.bold),
-              ),
-            )
-          ),
-          Expanded(
-            flex: 3,
-            child: SpinKitWave(
-              size: 150.0,
-              itemBuilder: (context, int index) {
-                return DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: index.isEven ? Colors.white : Colors.grey,
-                  ),
-                );
-              },
-            ),
-          )
-        ],
-      );
-    } else {
-      return Icon(Icons.hotel, size: 80.0);
-    }
-  }
-
-  IconData getPlayStopIcon() {
+  Widget getPlayStopIcon() {
     if (!isRecording) {
-      return Icons.play_arrow;
+      return Icon(Icons.play_arrow, size: 100,);
     } else {
-      return Icons.stop;
+      return Text(_recorderTxt, style: TextStyle(
+        fontWeight: FontWeight.bold,
+        fontSize: 30.0
+      ),);
     }
   }
 
@@ -161,7 +128,15 @@ class _MyAppState extends State<MyApp> with SingleTickerProviderStateMixin {
       return Container(
         color: _animateColorExpanded.value,
         child: Center(
-            child: getRecordingDisplay(context)
+          child: Container(
+            width: 200.0,
+            height: 200.0,
+            child: FloatingActionButton(
+              onPressed: _startRecord,
+              child: getPlayStopIcon(),
+              backgroundColor: _buttonColor.value,
+            ),
+          )
         ),
       );
     }
@@ -180,14 +155,6 @@ class _MyAppState extends State<MyApp> with SingleTickerProviderStateMixin {
         ..addListener(() {
           setState(() {});
         });
-    CurvedAnimation _curvedAnimaton = CurvedAnimation(
-      parent: _animationController,
-      curve: Interval(
-        0.00,
-        1.00,
-        curve: Curves.easeOut,
-      ),
-    );
     CurvedAnimation _curvedAnimatonExpanded = CurvedAnimation(
       parent: _animationController,
       curve: Interval(
@@ -196,8 +163,15 @@ class _MyAppState extends State<MyApp> with SingleTickerProviderStateMixin {
         curve: Curves.easeIn,
       ),
     );
-    _animateColor = ColorTween(begin: Colors.red, end: Colors.white,).animate(_curvedAnimaton);
     _animateColorExpanded = ColorTween(begin: Colors.white, end: Colors.red).animate(_curvedAnimatonExpanded);
+    _buttonColor = ColorTween(
+      begin: Colors.grey,
+      end: Colors.white
+    ).animate(CurvedAnimation(
+      parent: _animationController,
+      curve: Interval(
+        0.00, 1.00, curve: Curves.linear)
+    ));
     super.initState();
 
     getPaths();
@@ -219,15 +193,7 @@ class _MyAppState extends State<MyApp> with SingleTickerProviderStateMixin {
         currentIndex: _currentIndex,
         onTap: _onBottomNavigationBarTap,
         fixedColor: Colors.black87,
-      ),
-      floatingActionButton: FloatingActionButton(
-        backgroundColor: _animateColor.value,
-        onPressed: () {
-          _startRecord();
-        },
-        child: Icon(getPlayStopIcon())
-      ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
+      )
     );
   }
 }

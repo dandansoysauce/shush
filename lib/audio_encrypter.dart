@@ -17,8 +17,8 @@ class AudioEncrypter {
     final String ivFromStorage = await _secureStorage.read(key: 'ivkey');
     final String keyFromStorage = await _secureStorage.read(key: 'salsakey');
 
-    final String iv = ivFromStorage != null ? ivFromStorage : await _platform.invokeMethod('generateIv');
-    final String key = keyFromStorage != null ? keyFromStorage : await _secureString.generateRandomKey();
+    final String iv = '8bytesiv'; //ivFromStorage != null ? ivFromStorage : await _platform.invokeMethod('generateIv');
+    final String key = 'private!!!!!!!!!'; //keyFromStorage != null ? keyFromStorage : await _secureString.generateRandomKey();
     _encrypter = new Encrypter(new Salsa20(key, iv));
     setKey(key);
     setIv(iv);
@@ -45,7 +45,7 @@ class AudioEncrypter {
 
   static void writeToFile(String path, String encrypted) {
     DateTime appendDate = new DateTime.now();
-    var dateFormat = DateFormat('yyyy-MM-dd-s');
+    var dateFormat = DateFormat('yyyy-MM-dd H:s');
     String formatted = dateFormat.format(appendDate);
     final pathFileName = '$path/shush/shush_recording_$formatted';
     File testWriteEncryptedValue = new File(pathFileName);

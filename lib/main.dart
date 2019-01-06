@@ -184,6 +184,36 @@ class _MyAppState extends State<MyApp> with SingleTickerProviderStateMixin {
       appBar: AppBar(
         title: Text('Shush'),
       ),
+      drawer: Drawer(
+        child: ListView(
+          children: <Widget>[
+            DrawerHeader(
+              child: Align(
+                alignment: Alignment.bottomLeft,
+                child: Padding(
+                  padding: EdgeInsets.only(bottom: 6.0),
+                  child: Text(
+                    'Shush',
+                    style: TextStyle(
+                      fontSize: 32.0
+                    ),
+                  )
+                ),
+              ),
+              decoration: BoxDecoration(
+                color: Colors.grey[200]
+              )
+            ),
+            ListTile(
+              title: Text('Backup Key'),
+              leading: Icon(Icons.backup),
+              onTap: () {
+
+              },
+            )
+          ],
+        ),
+      ),
       body: getRecorderBody(),
       bottomNavigationBar: BottomNavigationBar(
         items: <BottomNavigationBarItem>[
